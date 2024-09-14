@@ -1,0 +1,11 @@
+target
+null
+.idea
+.bsp
+project/target
+project/project
+.gradle
+gradle
+gradlew*
+gradle
+gradle.properties

@@ -1,0 +1,21 @@
+plugins {
+    id 'org.jetbrains.kotlin.jvm' version '1.5.31'
+    id 'application'
+}
+
+
+
+apply plugin: 'kotlin'
+
+repositories {
+    mavenCentral()
+}
+
+
+application {
+    mainClassName = 'com.ebiznes.HelloWorldKt'
+}
+dependencies {
+    implementation 'org.jetbrains.kotlin:kotlin-stdlib'
+    implementation 'org.xerial:sqlite-jdbc:3.36.0.3'
+}
