@@ -1,0 +1,88 @@
+name: Deploy Frontend and Backend to GCP Cloud Run
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy-backend:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+            
+      # Authenticate using a Google Cloud service account
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v1
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      # Set up Docker authentication to push to Artifact Registry (Important step)
+      - name: Configure Docker for Artifact Registry
+        run: |
+          gcloud auth configure-docker us-central1-docker.pkg.dev
+
+      - name: Build and Push Docker image for Backend to Artifact Registry
+        run: |
+          docker build -t us-central1-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/openai-repo/openai-backend:$GITHUB_SHA -f ./openai_backend/Dockerfile .
+          docker push us-central1-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/openai-repo/openai-backend:$GITHUB_SHA
+
+      - name: Deploy Backend to Cloud Run
+        id: deploy-backend
+        run: |
+          gcloud run deploy openai-backend-service \
+            --image us-central1-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/openai-repo/openai-backend:$GITHUB_SHA \
+            --platform managed \
+            --region us-central1 \
+            --allow-unauthenticated \
+            --set-env-vars OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }} \
+            --format=json > backend-deployment-output.json
+
+      - name: Extract Backend URL
+        id: backend-url
+        run: |
+          BACKEND_URL=$(cat backend-deployment-output.json | jq -r '.status.url')
+          echo "BACKEND_URL=${BACKEND_URL}" >> $GITHUB_ENV
+          echo "::set-output name=backend_url::${BACKEND_URL}"  # This sets the job output for the backend URL
+
+    outputs:
+      backend_url: ${{ steps.backend-url.outputs.backend_url }}
+
+  deploy-frontend:
+    needs: deploy-backend
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+            # Authenticate using a Google Cloud service account
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v1
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      # Set up Docker authentication to push to Artifact Registry (Important step)
+      - name: Configure Docker for Artifact Registry
+        run: |
+          gcloud auth configure-docker us-central1-docker.pkg.dev
+
+      # Modify Frontend to Use Backend URL from previous job
+      - name: Modify Frontend to Use Backend URL
+        run: |
+          sed -i "s|REPLACE_WITH_BACKEND_URL|${{ needs.deploy-backend.outputs.backend_url }}|g" ./openai_frontend/script.js
+
+      - name: Build and Push Docker image for Frontend to Artifact Registry
+        run: |
+          docker build -t us-central1-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/openai-repo/openai-frontend:$GITHUB_SHA -f ./openai_frontend/Dockerfile .
+          docker push us-central1-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/openai-repo/openai-frontend:$GITHUB_SHA
+
+      - name: Deploy Frontend to Cloud Run
+        run: |
+          gcloud run deploy openai-frontend-service \
+            --image us-central1-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/openai-repo/openai-frontend:$GITHUB_SHA \
+            --platform managed \
+            --region us-central1 \
+            --allow-unauthenticated
